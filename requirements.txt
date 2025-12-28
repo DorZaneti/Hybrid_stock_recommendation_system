@@ -1,0 +1,23 @@
+# Stock Recommendation System - Python Dependencies
+
+# Core ML/DL frameworks
+torch==2.9.1
+numpy==2.4.0
+pandas==2.3.3
+scikit-learn==1.8.0
+
+# Financial data
+yfinance==0.2.66
+
+# Visualization
+matplotlib==3.10.8
+
+# Configuration
+pyyaml==6.0.2
+
+# Testing
+pytest==8.3.4
+
+# Optional: For better development experience
+# black==24.10.0  # Code formatting
+# flake8==7.1.1   # Linting

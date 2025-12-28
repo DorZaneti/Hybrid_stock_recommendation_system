@@ -1,0 +1,198 @@
+# Stock Recommendation System Configuration
+
+# Data Download Configuration
+data:
+  tickers:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - TSLA
+    - META
+    - NFLX
+    - NVDA
+    - BABA
+    - INTC
+    - AMD
+    - V
+    - JPM
+    - DIS
+    - PYPL
+    - CSCO
+    - PEP
+    - KO
+    - NKE
+    - PFE
+    - ADBE
+    - MRNA
+    - BA
+    - WMT
+    - XOM
+    - COST
+    - ORCL
+    - CRM
+    - SBUX
+    - SPOT
+    - SQ
+    - ZM
+    - SNOW
+    - SHOP
+    - RBLX
+    - T
+    - VZ
+    - F
+    - GM
+    - MCD
+    - UPS
+    - IBM
+    - WFC
+    - GS
+    - CAT
+    - TXN
+    - LMT
+    - GE
+    - PLTR
+    - ABBV
+    - MO
+    - CVX
+    - QCOM
+    - NIO
+    - JD
+    - NVS
+    - TM
+    - RIO
+    - UL
+    - BMY
+    - COP
+    - SCHW
+    - DE
+    - MS
+    - TMO
+    - NOC
+    - DD
+    - FDX
+    - BKNG
+    - ISRG
+    - LRCX
+    - MU
+    - GILD
+    - AMAT
+    - TGT
+    - EL
+    - ADI
+    - C
+    - PM
+    - VLO
+    - LOW
+    - SPGI
+    - MRK
+    - KMB
+    - DOW
+    - PGR
+    - CL
+    - OXY
+    - NEE
+    - EXC
+    - SRE
+    - USB
+    - PSX
+    - SO
+    - AEP
+    - PNC
+    - KHC
+    - MDLZ
+    - BSX
+
+  # Date range for initial data download
+  start_date: '2020-01-01'
+  end_date: '2025-12-31'
+
+  # Date range for training/testing
+  train_start_date: '2020-01-01'
+  train_end_date: '2023-01-01'
+
+# Feature Engineering Configuration
+features:
+  rsi:
+    window: 14
+  momentum:
+    window: 10
+  moving_average:
+    window: 20
+  bollinger_bands:
+    window: 20
+    std_multiplier: 2
+
+# Stock Similarity Configuration
+similarity:
+  base_ticker: 'AMZN'
+  num_similar_stocks: 10
+  features:
+    - RSI
+    - Momentum
+    - Moving_Average
+    - Bollinger_Upper
+    - Bollinger_Lower
+    - Close
+
+# LSTM Model Configuration
+model:
+  # Architecture
+  hidden_size: 100
+  num_layers: 4  # Number of LSTM layers
+  dropout: 0.2  # Dropout rate (will be applied properly)
+  sequence_length: 8  # Number of time steps for LSTM input
+
+  # Training
+  learning_rate: 0.001
+  learning_rate_single_feature: 0.002
+  batch_size: 32
+  num_epochs: 100
+  num_epochs_single_feature: 10
+
+  # Learning rate scheduler
+  scheduler:
+    step_size: 50
+    gamma: 0.1
+
+  # Transfer learning
+  transfer_learning:
+    freeze_layers: 3  # Number of layers to freeze
+    pretrain_split: 0.8  # Percentage of training data for pretraining
+
+# Training Configuration
+training:
+  # Train/test split
+  test_days: 5  # Number of days to use for testing
+  transfer_learning_split: 20  # Days to reserve for fine-tuning
+
+  # Random seed for reproducibility
+  random_seed: 42
+
+  # Device selection priority: mps > cuda > cpu
+  device_priority:
+    - mps
+    - cuda
+    - cpu
+
+# Visualization Configuration
+visualization:
+  figure_size:
+    width: 14
+    height: 7
+  plot_stocks:
+    - UPS
+    - KMB
+  y_limit_bottom: 100
+
+# Model Persistence
+persistence:
+  models_dir: './saved_models'
+  save_best_only: true
+
+# Logging Configuration
+logging:
+  level: 'INFO'  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: 'stock_prediction.log'
+  console_output: true

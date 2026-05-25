@@ -11,12 +11,22 @@ yfinance==0.2.66
 
 # Visualization
 matplotlib==3.10.8
+plotly==5.24.1
+
+# Dashboard
+streamlit==1.40.2
 
 # Configuration
 pyyaml==6.0.2
 
 # Testing
 pytest==8.3.4
+
+# Gradient-boosted trees
+xgboost>=2.0.0
+
+# Hyperparameter optimisation
+optuna>=3.0.0
 
 # Optional: For better development experience
 # black==24.10.0  # Code formatting

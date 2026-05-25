@@ -110,17 +110,19 @@ class StockLSTM(nn.Module):
             )
             num_layers_to_freeze = self.num_layers
 
-        # In a stacked LSTM, we can't freeze individual layers directly
-        # Instead, we freeze all LSTM parameters and unfreeze the last few
-        # This is a simplified approach for transfer learning
-
+        # PyTorch names stacked LSTM params with an _l{i} suffix (e.g. weight_ih_l0,
+        # weight_hh_l2, bias_ih_l1). Freeze only those whose layer index is < N.
+        frozen_layers = set()
         for name, param in self.lstm.named_parameters():
-            param.requires_grad = False
+            for i in range(num_layers_to_freeze):
+                if name.endswith(f"_l{i}"):
+                    param.requires_grad = False
+                    frozen_layers.add(i)
+                    break
 
-        logger.info(f"Froze all LSTM layers for transfer learning")
-        logger.warning(
-            "Note: With stacked LSTM architecture, we freeze all LSTM layers. "
-            "Only the final fully connected layer remains trainable."
+        logger.info(
+            f"Froze LSTM layers {sorted(frozen_layers)} "
+            f"({len(frozen_layers)}/{self.num_layers} layers)"
         )
 
     def unfreeze_all(self) -> None:
@@ -155,24 +157,30 @@ class SingleFeatureLSTM(StockLSTM):
         self,
         hidden_size: int,
         num_layers: int,
-        dropout: float = 0.2
+        dropout: float = 0.2,
+        input_size: int = 1,
     ):
         """
-        Initialize single-feature LSTM.
+        Initialize per-stock LSTM.
 
         Args:
             hidden_size: Number of hidden units
             num_layers: Number of LSTM layers
             dropout: Dropout probability
+            input_size: Number of input features per stock (default 1; set to
+                n_features when each stock has multiple features — Part 6 Phase 2).
 
         Example:
             >>> model = SingleFeatureLSTM(hidden_size=100, num_layers=4)
+            >>> model5 = SingleFeatureLSTM(hidden_size=100, num_layers=4, input_size=5)
         """
         super(SingleFeatureLSTM, self).__init__(
-            input_size=1,
+            input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             output_size=1,
-            dropout=dropout
+            dropout=dropout,
         )
-        logger.info("SingleFeatureLSTM initialized for individual stock prediction")
+        logger.info(
+            f"SingleFeatureLSTM initialized: input_size={input_size} per stock"
+        )

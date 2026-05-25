@@ -1,157 +1,164 @@
 """
-Stock similarity analysis using technical indicators.
+Stock similarity analysis using return correlation.
+
+Test A: Pearson correlation on daily log-returns during the training period only.
+- Higher correlation → more similar (inverted from the old Euclidean distance).
+- Restricting to the training period prevents OOS data leak.
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
+import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import pairwise_distances
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _log_returns(df: pd.DataFrame) -> pd.Series:
+    """Compute daily log-returns from the 'Close' column."""
+    return np.log(df["Close"] / df["Close"].shift(1)).dropna()
 
 
 def find_similar_stocks(
     data: Dict[str, pd.DataFrame],
     base_ticker: str,
     num_similar: int = 10,
-    features: List[str] = None
+    features: Optional[List[str]] = None,        # kept for API compat, unused
+    train_end_date: Optional[str] = None,
 ) -> List[str]:
     """
-    Find stocks similar to a base ticker based on technical indicators.
-
-    Uses Euclidean distance in feature space to measure similarity.
-    Lower distance means more similar stocks.
+    Find stocks most correlated with *base_ticker* using Pearson correlation
+    of daily log-returns, computed only over the training period.
 
     Args:
-        data: Dictionary mapping ticker symbols to DataFrames with features
-        base_ticker: Ticker symbol to find similar stocks for
-        num_similar: Number of similar stocks to return
-        features: List of feature column names to use for comparison.
-                 If None, uses default technical indicators.
+        data: Dict mapping ticker → DataFrame with at least a 'Close' column.
+        base_ticker: Ticker to find peers for.
+        num_similar: How many similar tickers to return.
+        features: Ignored — kept so call-sites don't need to change.
+        train_end_date: ISO date string (e.g. '2023-01-01').
+                        Only dates *before* this cutoff are used.
+                        If None, all available dates are used (no cutoff).
 
     Returns:
-        List of similar ticker symbols (most similar first)
-
-    Raises:
-        ValueError: If base ticker not in data or has no valid features
-        KeyError: If specified features not found in data
-
-    Example:
-        >>> data = {'AAPL': df1, 'MSFT': df2, 'GOOGL': df3}
-        >>> similar = find_similar_stocks(data, 'AAPL', num_similar=5)
-        >>> print(similar)
-        ['MSFT', 'GOOGL', ...]
+        List of ticker symbols sorted by descending correlation (most similar first).
     """
-    if features is None:
-        features = ['RSI', 'Momentum', 'Moving_Average', 'Bollinger_Upper', 'Bollinger_Lower', 'Close']
+    logger.info(
+        f"Finding {num_similar} stocks similar to {base_ticker} "
+        f"(Pearson return-correlation, train_end={train_end_date or 'all'})"
+    )
 
-    logger.info(f"Finding {num_similar} stocks similar to {base_ticker} using features: {features}")
-
-    # Validate base ticker
     if base_ticker not in data:
         raise ValueError(f"Base ticker '{base_ticker}' not found in data")
 
-    # Get base features and drop NaNs
-    base_features = data[base_ticker][features].dropna()
+    # ── Slice to training period ──────────────────────────────────────────────
+    cutoff = pd.Timestamp(train_end_date) if train_end_date else None
 
-    if base_features.empty:
+    def _train_slice(df: pd.DataFrame) -> pd.DataFrame:
+        if cutoff is None:
+            return df
+        return df.loc[df.index < cutoff]
+
+    # ── Base ticker returns ───────────────────────────────────────────────────
+    base_ret = _log_returns(_train_slice(data[base_ticker]))
+
+    if base_ret.empty or base_ret.std() == 0:
         raise ValueError(
-            f"Base ticker '{base_ticker}' has no valid features after dropping NaNs. "
-            "Ensure features are calculated first."
+            f"Base ticker '{base_ticker}' has no usable return data in the "
+            f"training period (up to {train_end_date})."
         )
 
-    logger.debug(f"Base ticker {base_ticker} has {len(base_features)} valid data points")
+    logger.debug(f"{base_ticker}: {len(base_ret)} training-period return observations")
 
-    # Calculate similarities
-    similarities = {}
-    skipped_tickers = []
+    # ── Compute correlations ──────────────────────────────────────────────────
+    correlations: Dict[str, float] = {}
+    skipped: List[str] = []
 
-    for ticker in data:
+    for ticker, df in data.items():
         if ticker == base_ticker:
             continue
 
         try:
-            # Check if features exist
-            missing_features = [f for f in features if f not in data[ticker].columns]
-            if missing_features:
-                logger.warning(f"{ticker}: Missing features {missing_features}")
-                skipped_tickers.append(ticker)
+            ret = _log_returns(_train_slice(df))
+
+            if ret.empty or ret.std() == 0:
+                logger.warning(f"{ticker}: empty or constant returns — skipping")
+                skipped.append(ticker)
                 continue
 
-            other_features = data[ticker][features].dropna()
-
-            if other_features.empty:
-                logger.warning(f"{ticker}: No valid features after dropping NaNs")
-                skipped_tickers.append(ticker)
+            # Align on the overlapping date index
+            common = base_ret.index.intersection(ret.index)
+            if len(common) < 30:
+                logger.warning(f"{ticker}: only {len(common)} overlapping days — skipping")
+                skipped.append(ticker)
                 continue
 
-            # Calculate Euclidean distance
-            distance = pairwise_distances(base_features, other_features, metric='euclidean').mean()
-            similarities[ticker] = distance
+            corr = float(base_ret.loc[common].corr(ret.loc[common]))
+            if np.isnan(corr):
+                skipped.append(ticker)
+                continue
 
-            logger.debug(f"{ticker}: Distance = {distance:.4f}")
+            correlations[ticker] = corr
+            logger.debug(f"{ticker}: corr = {corr:.4f}")
 
-        except Exception as e:
-            logger.error(f"Error calculating similarity for {ticker}: {str(e)}")
-            skipped_tickers.append(ticker)
+        except Exception as exc:
+            logger.error(f"Error computing correlation for {ticker}: {exc}")
+            skipped.append(ticker)
 
-    if not similarities:
+    if not correlations:
         raise ValueError(
             f"No valid stocks found for similarity comparison with {base_ticker}. "
-            f"Skipped: {', '.join(skipped_tickers)}"
+            f"Skipped: {', '.join(skipped)}"
         )
 
-    # Sort by distance (ascending) and return top N
-    similar_stocks = sorted(similarities, key=similarities.get)[:num_similar]
+    # Sort descending by correlation (most similar = highest positive correlation)
+    similar = sorted(correlations, key=correlations.__getitem__, reverse=True)[:num_similar]
 
-    logger.info(f"Found {len(similar_stocks)} similar stocks. Skipped {len(skipped_tickers)} tickers.")
-    if similar_stocks:
-        logger.info(f"Most similar: {similar_stocks[0]} (distance: {similarities[similar_stocks[0]]:.4f})")
+    logger.info(
+        f"Top {len(similar)} peers of {base_ticker}: {similar}. "
+        f"Skipped {len(skipped)} tickers."
+    )
+    if similar:
+        logger.info(
+            f"Highest corr: {similar[0]} ({correlations[similar[0]]:.4f}), "
+            f"Lowest in top-{num_similar}: {similar[-1]} ({correlations[similar[-1]]:.4f})"
+        )
 
-    return similar_stocks
+    return similar
 
 
 def get_similarity_scores(
     data: Dict[str, pd.DataFrame],
     base_ticker: str,
-    features: List[str] = None
+    features: Optional[List[str]] = None,        # kept for API compat
+    train_end_date: Optional[str] = None,
 ) -> Dict[str, float]:
     """
-    Get similarity scores for all stocks compared to a base ticker.
-
-    Args:
-        data: Dictionary mapping ticker symbols to DataFrames
-        base_ticker: Ticker to compare against
-        features: Features to use for comparison
+    Return Pearson return-correlation scores for every ticker vs *base_ticker*.
 
     Returns:
-        Dictionary mapping tickers to their similarity scores (distance)
-
-    Example:
-        >>> scores = get_similarity_scores(data, 'AAPL')
-        >>> print(scores['MSFT'])
-        0.523
+        Dict mapping ticker → correlation (higher = more similar).
     """
-    if features is None:
-        features = ['RSI', 'Momentum', 'Moving_Average', 'Bollinger_Upper', 'Bollinger_Lower', 'Close']
-
     if base_ticker not in data:
         raise ValueError(f"Base ticker '{base_ticker}' not found in data")
 
-    base_features = data[base_ticker][features].dropna()
-    if base_features.empty:
-        raise ValueError(f"Base ticker '{base_ticker}' has no valid features")
+    cutoff = pd.Timestamp(train_end_date) if train_end_date else None
 
-    scores = {}
-    for ticker in data:
+    def _train_slice(df: pd.DataFrame) -> pd.DataFrame:
+        return df.loc[df.index < cutoff] if cutoff is not None else df
+
+    base_ret = _log_returns(_train_slice(data[base_ticker]))
+    scores: Dict[str, float] = {}
+
+    for ticker, df in data.items():
         if ticker == base_ticker:
             continue
-
         try:
-            other_features = data[ticker][features].dropna()
-            if not other_features.empty:
-                distance = pairwise_distances(base_features, other_features, metric='euclidean').mean()
-                scores[ticker] = distance
-        except Exception as e:
-            logger.warning(f"Could not calculate score for {ticker}: {str(e)}")
+            ret = _log_returns(_train_slice(df))
+            common = base_ret.index.intersection(ret.index)
+            if len(common) >= 30:
+                corr = float(base_ret.loc[common].corr(ret.loc[common]))
+                if not np.isnan(corr):
+                    scores[ticker] = corr
+        except Exception as exc:
+            logger.warning(f"Could not compute score for {ticker}: {exc}")
 
     return scores

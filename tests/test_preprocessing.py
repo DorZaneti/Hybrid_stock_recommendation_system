@@ -31,9 +31,9 @@ def test_scale_data(sample_dataframe):
     assert isinstance(scaled, np.ndarray)
     assert scaled.shape[0] <= sample_dataframe.shape[0]
     assert scaled.shape[1] == sample_dataframe.shape[1]
-    # Check that values are scaled to [0, 1]
-    assert scaled.min() >= 0
-    assert scaled.max() <= 1
+    # Check that values are scaled to [0, 1] (allow tiny FP overshoot).
+    assert scaled.min() >= -1e-9
+    assert scaled.max() <= 1 + 1e-9
 
 
 def test_create_sequences():

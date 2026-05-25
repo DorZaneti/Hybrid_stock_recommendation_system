@@ -52,6 +52,13 @@ checkpoints/
 *.pth
 *.pkl
 
+# Generated outputs (plots, CSVs, metrics — reproduced by running main.py)
+outputs/
+
+# Config backups
+config/*.bak
+config/*.phase*bak
+
 # Data cache
 *.cache
 *.pkl

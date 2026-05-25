@@ -128,6 +128,21 @@ This will:
 6. Save trained models
 7. Display visualization plots
 
+### Streamlit Dashboard
+
+After `python main.py` finishes (it writes `outputs/metrics.csv`,
+`outputs/predictions.csv`, `outputs/losses.csv`, and per-stock CSVs), launch the
+interactive analyst view:
+
+```bash
+streamlit run dashboard.py
+```
+
+The dashboard shows headline KPIs (best **success rate** = directional accuracy,
+best RMSE), per-model comparison charts, a per-stock drill-down with actual vs
+predicted overlays for every model, and training loss curves. If `outputs/` is
+empty the dashboard prints a friendly hint instead of crashing.
+
 ### Configuration
 
 Edit `config/config.yaml` to customize:
@@ -237,11 +252,23 @@ pytest tests/test_features.py
 
 ## Performance Metrics
 
-The system evaluates models using:
-- **MSE (Mean Squared Error)**: Average squared prediction error
-- **RMSE (Root Mean Squared Error)**: Square root of MSE, in same units as prices
+The system trains on **log-returns** (`r_t = log(p_t / p_{t-1})`), splits time-orderedly
+into train / val / out-of-sample, fits a `StandardScaler` on the train slice only,
+and uses **early stopping** on validation MSE to pick the best checkpoint. Evaluation
+runs **walk-forward** across many 21-day windows on the OOS slice — each metric is a
+**mean ± std across windows**, not a single tail slice. Two reference predictors run
+through the same pipeline:
+- **Naive persistence** — predict tomorrow's return = today's return.
+- **Majority class** — predict the training-set mean return every day (captures bull-market drift).
 
-Lower values indicate better performance.
+Any LSTM that doesn't beat these baselines isn't learning anything useful, just memorizing.
+
+The system evaluates models using:
+- **MSE / RMSE**: magnitude of error (lower is better), in dollars after reconstruction.
+- **MAPE (Mean Absolute Percentage Error)**: error as a % of price.
+- **Directional Accuracy (Success Rate)**: % of test samples where the model
+  predicted the right next-day direction (up vs. down). 50% is random; >50% is
+  the only number that actually matters for a recommendation system.
 
 ## Logging
 

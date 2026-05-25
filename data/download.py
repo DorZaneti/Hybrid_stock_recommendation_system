@@ -92,6 +92,64 @@ def download_stock_data(
     raise ConnectionError("Unexpected error in download_stock_data")
 
 
+def download_macro_data(
+    macro_tickers: List[str],
+    start_date: str,
+    end_date: str,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Download macro / index data (e.g. VIX, S&P 500) from Yahoo Finance.
+
+    Wrapper around ``download_stock_data`` with friendlier error handling for
+    index tickers that may not appear in a bulk download.  Missing tickers are
+    logged as warnings rather than raising an exception, so a partial result
+    is acceptable.
+
+    Args:
+        macro_tickers: List of Yahoo Finance tickers (e.g. ['^VIX', '^GSPC']).
+        start_date:    Start date in 'YYYY-MM-DD' format.
+        end_date:      End date in 'YYYY-MM-DD' format.
+
+    Returns:
+        Dict mapping ticker symbol → DataFrame with at least a 'Close' column.
+        May be empty if all downloads fail (caller should check).
+
+    Example:
+        >>> macro = download_macro_data(['^VIX', '^GSPC'], '2020-01-01', '2025-01-01')
+        >>> vix_close = macro['^VIX']['Close']
+    """
+    logger.info(f"Downloading macro data for: {macro_tickers}")
+    result: Dict[str, pd.DataFrame] = {}
+
+    for ticker in macro_tickers:
+        try:
+            raw = yf.download(
+                ticker,
+                start=start_date,
+                end=end_date,
+                auto_adjust=True,
+                progress=False,
+            )
+            if raw is None or raw.empty:
+                logger.warning(f"No macro data returned for {ticker}")
+                continue
+            # yfinance returns multi-level columns for single-ticker downloads
+            # when called with auto_adjust — flatten if needed.
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            if "Close" not in raw.columns:
+                logger.warning(f"{ticker}: 'Close' column missing after download")
+                continue
+            result[ticker] = raw[["Close"]].copy()
+            logger.info(f"Downloaded {len(result[ticker])} rows for {ticker}")
+        except Exception as exc:
+            logger.warning(f"Failed to download macro ticker {ticker}: {exc}")
+
+    if not result:
+        logger.warning("No macro data could be downloaded; macro features will be disabled")
+    return result
+
+
 def validate_stock_data(data: pd.DataFrame, ticker: str) -> bool:
     """
     Validate that stock data meets minimum requirements.
